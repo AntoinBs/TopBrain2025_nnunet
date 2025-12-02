@@ -140,12 +140,13 @@ class PreprocessingPipeline:
     preprocessing_pipeline = PreprocessingPipeline('datasets/volumes', 'datasets/segmentations', 'datasets/new/volumes', 'datasets/new/segmentations', modality='CT' or 'MR')
     preprocessing_pipeline.run()
     '''
-    def __init__(self, volume_dir, segmentation_dir, output_volumes_dir, output_segmentations_dir, modality=None):
+    def __init__(self, volume_dir, segmentation_dir, output_volumes_dir, output_segmentations_dir, modality=None, foreground_binarize=False):
         self.volume_dir = volume_dir
         self.segmentation_dir = segmentation_dir
         self.output_volumes_dir = output_volumes_dir
         self.output_segmentations_dir = output_segmentations_dir
         self.modality = modality
+        self.foreground_binarize = foreground_binarize
 
     def run(self):
         # Ensure the output directories exist
@@ -182,12 +183,19 @@ class PreprocessingPipeline:
                         if self.modality == 'CT':
                             clipper = IntensityClipping(min_val=-200, max_val=800) # Apply intensity clipping for CT images
                             volume = clipper(volume)
-                            mapper = LabelRemapping(CTA_TO_GLOBAL) # Apply label remapping for CTA segmentations
-                            segmentation = mapper(segmentation)
+                            if not self.foreground_binarize:
+                                mapper = LabelRemapping(CTA_TO_GLOBAL) # Apply label remapping for CTA segmentations
+                                segmentation = mapper(segmentation)
+                            else:
+                                # Binarize the segmentation to foreground/background
+                                segmentation = sitk.BinaryThreshold(segmentation, lowerThreshold=1, upperThreshold=1000, insideValue=1, outsideValue=0)
+
 
                         elif self.modality == 'MR':
                             bfc = BiasFieldCorrection(shrink_factor=4) # Apply bias field correction for MR images
                             volume = bfc(volume)
+                            if self.foreground_binarize:
+                                segmentation = sitk.BinaryThreshold(segmentation, lowerThreshold=1, upperThreshold=1000, insideValue=1, outsideValue=0)
 
                     # Save the modified volume in the output volumes directory
                     modified_volume_path = os.path.join(self.output_volumes_dir, volume_file)
